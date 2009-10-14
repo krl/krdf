@@ -1,5 +1,6 @@
 from pyrant import Tyrant
 from hashlib import sha1
+import re
 
 t = Tyrant(host='127.0.0.1', port=1978)
 
@@ -90,12 +91,18 @@ class Single(object):
 
 def makeuri(seed):
   "make uri from seed"
-  a = seed
+  uri = ""
+  valid = re.compile("[a-zA-Z0-9_]")
   count = 2
-  while len(t.query.filter(sub=a)):
-    a = seed + "_" + str(count)
+  for x in re.sub(" ", "_", seed):
+    if valid.match(x):
+      uri += x
+  _try = uri
+
+  while len(t.query.filter(sub=_try)):
+    _try = uri + "_" + str(count)
     count += 1
-  return a
+  return _try
 
 rdf = Namespace("http://www.w3.org/1999/02/22-rdf-syntax-ns#")
 
