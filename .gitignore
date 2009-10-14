@@ -1,0 +1,4 @@
+*.pyc
+build
+dist
+krdf.egg-info
