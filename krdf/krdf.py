@@ -51,6 +51,33 @@ class Resource(object):
         # be committed
         v.set(self.uri, value)
 
+  @classmethod
+  def get(self, **args):
+    result = set([])
+    for x in dir(self):
+      attr = getattr(self, x)
+      if isinstance(attr, Single) and attr.obj:
+        res = t.query.filter(prd=attr.prd)
+        res = res.filter(obj=attr.obj)
+        keys = [x.values()[0]['sub'] for x in res]
+        if result:
+          result = result.intersection(keys)
+        else:
+          result = set(keys)
+
+    for k,v in args.iteritems():
+      attr = getattr(self, k)
+      if isinstance(attr, Single):
+        res = t.query.filter(prd=attr.prd)
+        res = res.filter(obj=v)
+        keys = [x.values()[0]['sub'] for x in res]
+        if result:
+          result = result.intersection(keys)
+        else:
+          result = set(keys)
+
+    return [self(x) for x in result]
+
 class Single(object):
   def __init__(self, prd, obj=None, objtype=literal):
     self.prd = prd
@@ -72,7 +99,7 @@ class Single(object):
       if self.objtype == literal:
         return ""
       else:
-        return None    
+        return None
 
   def set(self, sub, obj):
     # remove (all, but should only be one) old.
@@ -92,9 +119,9 @@ class Single(object):
 def makeuri(seed):
   "make uri from seed"
   uri = ""
-  valid = re.compile("[a-zA-Z0-9_]")
+  valid = re.compile("[a-zA-Z0-9:,/#-_.!~*'()]")
   count = 2
-  for x in re.sub(" ", "_", seed):
+  for x in re.sub(" ", "-", seed):
     if valid.match(x):
       uri += x
   _try = uri
@@ -106,11 +133,5 @@ def makeuri(seed):
 
 rdf = Namespace("http://www.w3.org/1999/02/22-rdf-syntax-ns#")
 
-class Query:
-  def dump(self):
-    return [x.values()[0] for x in t.query.filter()]
-
-  def type(self, resource):
-    res = t.query.filter(prd=rdf.type)
-    res = res.filter(obj=resource.type.obj)
-    return [resource(x.values()[0]['sub']) for x in res]
+def dumpdb(self):
+  return [x.values()[0] for x in t.query.filter()]
