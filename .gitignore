@@ -2,3 +2,4 @@
 build
 dist
 krdf.egg-info
+*tct

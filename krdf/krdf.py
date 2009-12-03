@@ -1,11 +1,17 @@
-from pyrant import Tyrant
-from hashlib import sha1
-import re
+# -*- encoding:utf-8 -*-
 
-t = Tyrant(host='127.0.0.1', port=1978)
+from tokyocabinet import table
+from hashlib import sha1
+import re, cjson
+
+db = table.Table()
+db.open('rdf.tct', table.TDBOWRITER | table.TDBOCREAT)
 
 literal = "l"
 uri = "u"
+decimal = "d"
+
+callbacks = []
 
 def triplehash(sub, prd, obj):
   return sha1(sub + "\n" + prd + "\n" + obj).hexdigest()
@@ -38,10 +44,18 @@ class Resource(object):
 
   def __getattribute__(self, name):
     schema = object.__getattribute__(self,'schema')
-    if schema.has_key(name):      
+    if schema.has_key(name):
       return schema[name].get(self.uri)
     else:
       return object.__getattribute__(self,name)
+
+  def __getitem__(self, key):
+    q = db.query()
+    q.addcond('sub', table.TDBQCSTREQ, self.uri)
+    q.addcond('prd', table.TDBQCSTREQ, key)
+    res = q.search()
+    if len(res):
+      return db[res[0]]['obj']
 
   def commit(self):
     for k, v in self.schema.iteritems():
@@ -50,51 +64,92 @@ class Resource(object):
         # only the values that actually changed or has a default will
         # be committed
         v.set(self.uri, value)
+    for x in callbacks:
+      res = Resource(self.uri)
+      x(res)
+
+  def tojson(self):
+    vals = {}
+    q = db.query()
+    q.addcond('sub', table.TDBQCSTREQ, self.uri)
+    res = q.search()
+    for x in res:
+      v = db[x]
+      if v['objtype'] == uri:
+        typ = "uri"
+      else:
+        typ = "literal"
+
+      vals[v['prd']] = [{"value":v['obj'],
+                      "type" :typ}]
+
+    return cjson.encode({self.uri: vals})
 
   @classmethod
-  def get(self, **args):
+  def getsorted(self, sortby, **kwargs):
     result = set([])
     for x in dir(self):
       attr = getattr(self, x)
       if isinstance(attr, Single) and attr.obj:
-        res = t.query.filter(prd=attr.prd)
-        res = res.filter(obj=attr.obj)
-        keys = [x.values()[0]['sub'] for x in res]
+        q = db.query()
+        q.addcond('prd', table.TDBQCSTREQ, attr.prd)
+        q.addcond('obj', table.TDBQCSTREQ, attr.obj)
+        res = q.search()
+        keys = [db[x]['sub'] for x in res]
         if result:
           result = result.intersection(keys)
         else:
           result = set(keys)
-
-    for k,v in args.iteritems():
+ 
+    for k,v in kwargs.iteritems():
       attr = getattr(self, k)
       if isinstance(attr, Single):
-        res = t.query.filter(prd=attr.prd)
-        res = res.filter(obj=v)
-        keys = [x.values()[0]['sub'] for x in res]
+        q = db.query()
+        q.addcond('prd', table.TDBQCSTREQ, attr.prd)
+        q.addcond('obj', table.TDBQCSTREQ, v)
+        res = q.search()
+        keys = [db[x]['sub'] for x in res]
         if result:
           result = result.intersection(keys)
         else:
           result = set(keys)
+ 
+    if sortby:
+      order = []
+      for r in result:
+        q = db.query()
+        q.addcond('sub', table.TDBQCSTREQ, r)
+        q.addcond('prd', table.TDBQCSTREQ, sortby)
+        res = q.search()
+        order.append([long(db[res[0]]['obj']), r])
+      order.sort()
+      return [self(x[1]) for x in order]
 
     return [self(x) for x in result]
 
+  @classmethod
+  def get(self, **kwargs):
+    return self.getsorted(None, **kwargs)
+
 class Single(object):
-  def __init__(self, prd, obj=None, objtype=literal):
+  def __init__(self, prd, objtype=literal, default=None):
     self.prd = prd
-    self.obj = obj
+    self.obj = default
     self.objtype = objtype
     self.id = ""
 
   def get(self, sub):
-    res = t.query.filter(sub=sub)
-    res = res.filter(prd=self.prd)
+    q = db.query()
+    q.addcond('sub', table.TDBQCSTREQ, sub)
+    q.addcond('prd', table.TDBQCSTREQ, self.prd)
+    res = q.search()
     if len(res):
       if self.objtype == literal:
-        return res[0].values()[0]['obj']
+        return db[res[0]]['obj'].decode('utf-8') # ENCODING CRAP
       elif self.objtype == uri:
-        return Resource(res[0].values()[0]['obj'])
+        return Resource(db[res[0]]['obj'])
       else:
-        return self.objtype(res[0].values()[0]['obj'])
+        return self.objtype(db[res[0]]['obj'])
     else:
       if self.objtype == literal:
         return ""
@@ -103,18 +158,22 @@ class Single(object):
 
   def set(self, sub, obj):
     # remove (all, but should only be one) old.
-    res = t.query.filter(sub=sub)
-    res = res.filter(prd=self.prd)    
+    q = db.query()
+    q.addcond('sub', table.TDBQCSTREQ, sub)
+    q.addcond('prd', table.TDBQCSTREQ, self.prd)
+    res = q.search()
     for k in res:
-      del t[k.keys()[0]]
+      db.out(k)
 
     # directly add uris from Resources
     if hasattr(obj, "uri"):
       obj = obj.uri
 
     self.id = triplehash(sub, self.prd, obj)
-    t[self.id] = {'sub': sub, 'prd'    : self.prd,
-                  'obj': obj, 'objtype': self.objtype}
+    db[self.id] = {'sub'    : sub, 
+                   'prd'    : self.prd,
+                   'obj'    : obj, 
+                   'objtype': "u" if type(self.objtype) != str else self.objtype}
 
 def makeuri(seed):
   "make uri from seed"
@@ -126,12 +185,17 @@ def makeuri(seed):
       uri += x
   _try = uri
 
-  while len(t.query.filter(sub=_try)):
+  while True:
+    q = db.query()
+    q.addcond('sub', table.TDBQCSTREQ, _try)    
+    if not q.search():
+      break
     _try = uri + "_" + str(count)
     count += 1
   return _try
 
-rdf = Namespace("http://www.w3.org/1999/02/22-rdf-syntax-ns#")
+def dumpdb():
+  return [db[x] for x in db.query().search()]
 
-def dumpdb(self):
-  return [x.values()[0] for x in t.query.filter()]
+def register_commit_callback(callback):
+  callbacks.append(callback)
