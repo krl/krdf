@@ -2,10 +2,10 @@
 
 from tokyocabinet import table
 from hashlib import sha1
-import re, cjson
+import re, cjson, os
 
 db = table.Table()
-db.open('rdf.tct', table.TDBOWRITER | table.TDBOCREAT)
+db.open(os.path.expanduser('~/.krdfdata'), table.TDBOWRITER | table.TDBOCREAT)
 
 literal = "l"
 uri = "u"
@@ -57,7 +57,7 @@ class Resource(object):
     if len(res):
       return db[res[0]]['obj']
 
-  def commit(self):
+  def commit(self):    
     for k, v in self.schema.iteritems():
       value = object.__getattribute__(self,k)
       if value:
@@ -68,7 +68,10 @@ class Resource(object):
       res = Resource(self.uri)
       x(res)
 
-  def tojson(self):
+  def tojson(self):    
+    return cjson.encode(self.todict())
+
+  def todict(self):
     vals = {}
     q = db.query()
     q.addcond('sub', table.TDBQCSTREQ, self.uri)
@@ -81,9 +84,9 @@ class Resource(object):
         typ = "literal"
 
       vals[v['prd']] = [{"value":v['obj'],
-                      "type" :typ}]
+                         "type" :typ}]
 
-    return cjson.encode({self.uri: vals})
+    return {self.uri: vals}
 
   @classmethod
   def getsorted(self, sortby, **kwargs):
@@ -140,7 +143,7 @@ class Single(object):
 
   def get(self, sub):
     q = db.query()
-    q.addcond('sub', table.TDBQCSTREQ, sub)
+    q.addcond('sub', table.TDBQCSTREQ, str(sub))
     q.addcond('prd', table.TDBQCSTREQ, self.prd)
     res = q.search()
     if len(res):
@@ -199,3 +202,19 @@ def dumpdb():
 
 def register_commit_callback(callback):
   callbacks.append(callback)
+
+def tojson(*args):
+  "converts x resources into a json rdf representation"
+  dict = {}
+  for x in args:
+    dict.update(x.todict())
+
+  return cjson.encode(dict)
+
+def fromjson(jsonstring):
+  for k, v in cjson.decode(jsonstring).iteritems():
+    for kk, vv in v.iteritems():
+      for x in vv:
+        # first character of type only. ("l", "u")
+        s = Single(kk, x['type'][0])
+        s.set(k, x['value'])
