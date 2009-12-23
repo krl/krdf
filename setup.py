@@ -14,7 +14,7 @@
 # limitations under the License.
 
 """
-The setup and build script for the pyrant library.
+The setup and build script for the krdf library.
 """
 
 from setuptools import setup
@@ -28,7 +28,7 @@ setup(
     author = 'Kristoffer Ström',
     author_email = 'kristoffer@rymdkoloni.se',
     packages = ['krdf'],
-    install_requires = ['setuptools'],
+    install_requires = ['setuptools', 'bsddb3'],
     include_package_data = True,
     classifiers = [
       'Intended Audience :: Developers',

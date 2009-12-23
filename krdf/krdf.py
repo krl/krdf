@@ -1,17 +1,16 @@
 # -*- encoding:utf-8 -*-
-
-from tokyocabinet import table
-from hashlib import sha1
+from graph import Graph
 import re, cjson, os
 
-db = table.Table()
-db.open(os.path.expanduser('~/.krdfdata'), table.TDBOWRITER | table.TDBOCREAT)
+graph = Graph("testgraph")
 
 literal = "l"
 uri = "u"
 decimal = "d"
 
 callbacks = []
+
+SELF = "self"
 
 def triplehash(sub, prd, obj):
   return sha1(sub + "\n" + prd + "\n" + obj).hexdigest()
@@ -37,25 +36,36 @@ class Resource(object):
     # the original slots are replaced by the schemas default value
     for x in dir(self):
       attr = object.__getattribute__(self, x)
+
       if isinstance(attr, Single):
-        attr.sub = self.uri
-        self.schema[x] = attr
+        if attr.objtype == SELF:
+          attr.objtype = self.__class__
+        # copy the class instance
+        self.schema[x] = Single(attr.prd, attr.objtype, attr.obj)
+        self.schema[x].sub = self.uri
         object.__setattr__(self, x, attr.obj)
+      if isinstance(attr, Multiple):
+        if attr.objtype == SELF:
+          attr.objtype = self.__class__
+        # copy the class instance
+        self.schema[x] = Multiple(attr.prd, attr.objtype)
+        self.schema[x].sub = self.uri
+        object.__setattr__(self, x, attr)
 
   def __getattribute__(self, name):
     schema = object.__getattribute__(self,'schema')
     if schema.has_key(name):
-      return schema[name].get(self.uri)
+      return schema[name].read()
     else:
       return object.__getattribute__(self,name)
 
   def __getitem__(self, key):
-    q = db.query()
-    q.addcond('sub', table.TDBQCSTREQ, self.uri)
-    q.addcond('prd', table.TDBQCSTREQ, key)
-    res = q.search()
+    res = graph.get(self.uri, key)
     if len(res):
-      return db[res[0]]['obj']
+      return db[res[0]]['o']
+
+  def remove(self):
+    graph.remove(self.uri)
 
   def commit(self):    
     for k, v in self.schema.iteritems():
@@ -63,76 +73,93 @@ class Resource(object):
       if value:
         # only the values that actually changed or has a default will
         # be committed
-        v.set(self.uri, value)
-    for x in callbacks:
-      res = Resource(self.uri)
-      x(res)
+        v.set(value)
+    callback(self.uri)
 
   def tojson(self):    
     return cjson.encode(self.todict())
 
   def todict(self):
-    vals = {}
-    q = db.query()
-    q.addcond('sub', table.TDBQCSTREQ, self.uri)
-    res = q.search()
+    vals = {}    
+    res = graph.get(self.uri)
     for x in res:
       v = db[x]
-      if v['objtype'] == uri:
-        typ = "uri"
-      else:
+      if v['t'] == literal:
         typ = "literal"
+      else:
+        typ = "uri"
 
-      vals[v['prd']] = [{"value":v['obj'],
-                         "type" :typ}]
+      vals[v['p']] = [{"value":v['o'],
+                       "type" :typ}]
 
     return {self.uri: vals}
 
+  def __str__(self):
+    return self.uri
+
   @classmethod
   def getsorted(self, sortby, **kwargs):
-    result = set([])
-    for x in dir(self):
-      attr = getattr(self, x)
-      if isinstance(attr, Single) and attr.obj:
-        q = db.query()
-        q.addcond('prd', table.TDBQCSTREQ, attr.prd)
-        q.addcond('obj', table.TDBQCSTREQ, attr.obj)
-        res = q.search()
-        keys = [db[x]['sub'] for x in res]
-        if result:
-          result = result.intersection(keys)
-        else:
-          result = set(keys)
- 
-    for k,v in kwargs.iteritems():
-      attr = getattr(self, k)
-      if isinstance(attr, Single):
-        q = db.query()
-        q.addcond('prd', table.TDBQCSTREQ, attr.prd)
-        q.addcond('obj', table.TDBQCSTREQ, v)
-        res = q.search()
-        keys = [db[x]['sub'] for x in res]
-        if result:
-          result = result.intersection(keys)
-        else:
-          result = set(keys)
- 
-    if sortby:
-      order = []
-      for r in result:
-        q = db.query()
-        q.addcond('sub', table.TDBQCSTREQ, r)
-        q.addcond('prd', table.TDBQCSTREQ, sortby)
-        res = q.search()
-        order.append([long(db[res[0]]['obj']), r])
-      order.sort()
-      return [self(x[1]) for x in order]
-
-    return [self(x) for x in result]
+    # this will need to be optimized sometime to add indexes for frequently
+    # sorted arguments.
+    return self.get()
 
   @classmethod
-  def get(self, **kwargs):
-    return self.getsorted(None, **kwargs)
+  def get(self):
+    sets = []
+    # which Resources fits in on all schema constraints?
+    for x in dir(self):
+      attr = getattr(self, x)
+      # does this value has a default (attr.obj) that should be matched?
+      if isinstance(attr, Single) and attr.obj:
+        sets.append(set([x['s'] for x in graph.get(None, attr.prd, attr.obj)]))
+
+    if sets:      
+      return [self(x) for x in sets[0].intersection(*sets[1:])]
+    else:
+      return []
+
+class Multiple(object):
+  def __init__(self, prd, objtype=literal):
+    self.prd = prd
+    self.objtype = objtype
+    self.sub = None
+    self.addlist, self.removelist = [], []
+
+  def add(self, obj):
+    self.addlist.append(obj)
+
+  def read(self):
+    return self
+
+  def get(self):
+    q = db.query()
+    q.addcond('sub', table.TDBQCSTREQ, self.sub)
+    q.addcond('prd', table.TDBQCSTREQ, self.prd)
+    res = q.search()
+
+    ret = []
+
+    if len(res):
+      for x in res:
+        if self.objtype == literal:
+          ret.append(db[x]['obj'].decode('utf-8')) # ENCODING CRAP
+        elif self.objtype == uri:
+          ret.append(Resource(db[x]['obj']))
+        else:
+          ret.append(self.objtype(db[x]['obj']))
+    return ret
+
+  def set(self, dummy):
+    for obj in self.addlist:
+      # directly add uris from Resources
+      if hasattr(obj, "uri"):
+        obj = obj.uri
+      
+      self.id = triplehash(self.sub, self.prd, obj)
+      db[self.id] = {'sub'    : self.sub, 
+                     'prd'    : self.prd,
+                     'obj'    : obj, 
+                     'objtype': "u" if type(self.objtype) != str else self.objtype}
 
 class Single(object):
   def __init__(self, prd, objtype=literal, default=None):
@@ -140,43 +167,32 @@ class Single(object):
     self.obj = default
     self.objtype = objtype
     self.id = ""
+    self.sub = None
 
-  def get(self, sub):
-    q = db.query()
-    q.addcond('sub', table.TDBQCSTREQ, str(sub))
-    q.addcond('prd', table.TDBQCSTREQ, self.prd)
-    res = q.search()
+  def read(self):
+    res = graph.get(self.sub, self.prd)
     if len(res):
       if self.objtype == literal:
-        return db[res[0]]['obj'].decode('utf-8') # ENCODING CRAP
+        return res[0]['o'].decode('utf-8') # ENCODING CRAP
       elif self.objtype == uri:
-        return Resource(db[res[0]]['obj'])
+        return Resource(res[0]['o'])
       else:
-        return self.objtype(db[res[0]]['obj'])
+        return self.objtype(res[0]['o'])
     else:
       if self.objtype == literal:
         return ""
       else:
         return None
 
-  def set(self, sub, obj):
-    # remove (all, but should only be one) old.
-    q = db.query()
-    q.addcond('sub', table.TDBQCSTREQ, sub)
-    q.addcond('prd', table.TDBQCSTREQ, self.prd)
-    res = q.search()
-    for k in res:
-      db.out(k)
-
+  def set(self, obj):
     # directly add uris from Resources
     if hasattr(obj, "uri"):
       obj = obj.uri
 
-    self.id = triplehash(sub, self.prd, obj)
-    db[self.id] = {'sub'    : sub, 
-                   'prd'    : self.prd,
-                   'obj'    : obj, 
-                   'objtype': "u" if type(self.objtype) != str else self.objtype}
+    graph.set(self.sub,
+              self.prd,
+              obj,
+              "u" if type(self.objtype) != str else self.objtype)
 
 def makeuri(seed):
   "make uri from seed"
@@ -198,7 +214,18 @@ def makeuri(seed):
   return _try
 
 def dumpdb():
-  return [db[x] for x in db.query().search()]
+  dump = [db[x] for x in db.query().search()]
+  ret = []
+  for x in dump:
+    x['obj'] = x['obj'].decode('utf-8') # ENCODING CRAP
+    ret.append(x)
+    
+  return ret
+
+def callback(uri):
+  for x in callbacks:
+    res = Resource(uri)
+    x(res)
 
 def register_commit_callback(callback):
   callbacks.append(callback)
@@ -211,10 +238,14 @@ def tojson(*args):
 
   return cjson.encode(dict)
 
-def fromjson(jsonstring):
-  for k, v in cjson.decode(jsonstring).iteritems():
+def fromdict(dictionary):
+  for k, v in dictionary.iteritems():
     for kk, vv in v.iteritems():
       for x in vv:
-        # first character of type only. ("l", "u")
+        # using first character of type only. ("l", "u")
         s = Single(kk, x['type'][0])
         s.set(k, x['value'])
+    callback(k)
+
+def fromjson(jsonstring):
+  fromdict(cjson.decode(jsonstring))
