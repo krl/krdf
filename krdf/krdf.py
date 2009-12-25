@@ -2,7 +2,7 @@
 from graph import Graph
 import re, cjson, os
 
-graph = Graph("testgraph")
+graph = Graph("test")
 
 literal = "l"
 uri = "u"
@@ -11,9 +11,6 @@ decimal = "d"
 callbacks = []
 
 SELF = "self"
-
-def triplehash(sub, prd, obj):
-  return sha1(sub + "\n" + prd + "\n" + obj).hexdigest()
 
 class Namespace():
   def __init__(self, base):
@@ -67,7 +64,7 @@ class Resource(object):
   def remove(self):
     graph.remove(self.uri)
 
-  def commit(self):    
+  def commit(self):
     for k, v in self.schema.iteritems():
       value = object.__getattribute__(self,k)
       if value:
@@ -83,13 +80,12 @@ class Resource(object):
     vals = {}    
     res = graph.get(self.uri)
     for x in res:
-      v = db[x]
-      if v['t'] == literal:
+      if x['t'] == literal:
         typ = "literal"
       else:
         typ = "uri"
 
-      vals[v['p']] = [{"value":v['o'],
+      vals[x['p']] = [{"value":x['o'],
                        "type" :typ}]
 
     return {self.uri: vals}
@@ -101,10 +97,10 @@ class Resource(object):
   def getsorted(self, sortby, **kwargs):
     # this will need to be optimized sometime to add indexes for frequently
     # sorted arguments.
-    return self.get()
+    return self.get(**kwargs)
 
   @classmethod
-  def get(self):
+  def get(self, **kwargs):
     sets = []
     # which Resources fits in on all schema constraints?
     for x in dir(self):
@@ -112,6 +108,10 @@ class Resource(object):
       # does this value has a default (attr.obj) that should be matched?
       if isinstance(attr, Single) and attr.obj:
         sets.append(set([x['s'] for x in graph.get(None, attr.prd, attr.obj)]))
+        
+    for k,v in kwargs.iteritems():
+      attr = getattr(self, k)
+      sets.append(set([x['s'] for x in graph.get(None, attr.prd, v)]))
 
     if sets:      
       return [self(x) for x in sets[0].intersection(*sets[1:])]
@@ -132,21 +132,17 @@ class Multiple(object):
     return self
 
   def get(self):
-    q = db.query()
-    q.addcond('sub', table.TDBQCSTREQ, self.sub)
-    q.addcond('prd', table.TDBQCSTREQ, self.prd)
-    res = q.search()
-
+    res = graph.get(self.sub, self.prd)
     ret = []
 
     if len(res):
       for x in res:
         if self.objtype == literal:
-          ret.append(db[x]['obj'].decode('utf-8')) # ENCODING CRAP
+          ret.append(x['o'].decode('utf-8')) # ENCODING CRAP
         elif self.objtype == uri:
-          ret.append(Resource(db[x]['obj']))
+          ret.append(Resource(x['o']))
         else:
-          ret.append(self.objtype(db[x]['obj']))
+          ret.append(self.objtype(x['o']))
     return ret
 
   def set(self, dummy):
@@ -155,11 +151,8 @@ class Multiple(object):
       if hasattr(obj, "uri"):
         obj = obj.uri
       
-      self.id = triplehash(self.sub, self.prd, obj)
-      db[self.id] = {'sub'    : self.sub, 
-                     'prd'    : self.prd,
-                     'obj'    : obj, 
-                     'objtype': "u" if type(self.objtype) != str else self.objtype}
+      graph.set(self.sub, self.prd, obj, 
+                uri if type(self.objtype) != str else self.objtype)
 
 class Single(object):
   def __init__(self, prd, objtype=literal, default=None):
@@ -186,13 +179,12 @@ class Single(object):
 
   def set(self, obj):
     # directly add uris from Resources
+
     if hasattr(obj, "uri"):
       obj = obj.uri
 
-    graph.set(self.sub,
-              self.prd,
-              obj,
-              "u" if type(self.objtype) != str else self.objtype)
+    graph.set(self.sub, self.prd, obj,
+              uri if type(self.objtype) != str else self.objtype)
 
 def makeuri(seed):
   "make uri from seed"
@@ -205,21 +197,18 @@ def makeuri(seed):
   _try = uri
 
   while True:
-    q = db.query()
-    q.addcond('sub', table.TDBQCSTREQ, _try)    
-    if not q.search():
+    if not graph.get(_try):
       break
     _try = uri + "_" + str(count)
     count += 1
   return _try
 
 def dumpdb():
-  dump = [db[x] for x in db.query().search()]
   ret = []
-  for x in dump:
-    x['obj'] = x['obj'].decode('utf-8') # ENCODING CRAP
+
+  for x in graph.get():
+    x['o'] = x['o'].decode('utf-8') # ENCODING CRAP
     ret.append(x)
-    
   return ret
 
 def callback(uri):
