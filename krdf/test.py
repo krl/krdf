@@ -1,3 +1,5 @@
+# -*- encoding:utf-8 -*-
+
 import krdf
 from krdf import Single, Multiple
 
@@ -13,7 +15,7 @@ class Person(krdf.Resource):
 
 x = Person(mytag.Kristoffer)
 x.name = "kristoffer"
-x.depiction = "tudelu"
+x.depiction = "unicöde"
 x.commit()
 
 y = Person(mytag.Kristoffer)
@@ -26,4 +28,3 @@ for x in Person.get():
   print x.type
   print x.name
   print x.depiction
-

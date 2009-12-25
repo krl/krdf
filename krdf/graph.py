@@ -22,7 +22,10 @@ class Graph ():
           "po" : {"map": "function(doc) {emit([doc.p, doc.o], doc);}"}}}
 
   def add(self, s, p, o, t):
-    self.db.create({'s': s, 'p': p, 'o': o, 't': t})
+    self.db.create({'s': s.decode('utf-8'),
+                    'p': p.decode('utf-8'),
+                    'o': o.decode('utf-8'),
+                    't': t.decode('utf-8')})
 
   def remove(self, s=None, p=None, o=None):
     for x in self.get(s,p,o):

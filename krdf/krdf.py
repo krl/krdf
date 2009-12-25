@@ -166,7 +166,7 @@ class Single(object):
     res = graph.get(self.sub, self.prd)
     if len(res):
       if self.objtype == literal:
-        return res[0]['o'].decode('utf-8') # ENCODING CRAP
+        return res[0]['o']
       elif self.objtype == uri:
         return Resource(res[0]['o'])
       else:
@@ -207,7 +207,7 @@ def dumpdb():
   ret = []
 
   for x in graph.get():
-    x['o'] = x['o'].decode('utf-8') # ENCODING CRAP
+    x['o'] = x['o']
     ret.append(x)
   return ret
 
