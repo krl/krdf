@@ -9,11 +9,11 @@ import couchdb
 # graph class
 
 class Graph ():
-  def __init__(self, filename):    
-    server = couchdb.Server('http://localhost:5984/')
-    if not server.__contains__(filename):
-      server.create(filename)
-    self.db = server[filename]
+  def __init__(self, address, db_name):
+    server = couchdb.Server(address)
+    if not server.__contains__(db_name):
+      server.create(db_name)
+    self.db = server[db_name]
     if not self.db.__contains__('_design/index'):
       self.db['_design/index'] = {"views": {
           "s"  : {"map": "function(doc) {emit(doc.s, doc);}"},
@@ -22,12 +22,14 @@ class Graph ():
           "po" : {"map": "function(doc) {emit([doc.p, doc.o], doc);}"}}}
 
   def add(self, s, p, o, t):
+    #print "add",s, p, o, t
     self.db.create({'s': s.decode('utf-8'),
                     'p': p.decode('utf-8'),
                     'o': o.decode('utf-8'),
                     't': t.decode('utf-8')})
 
   def remove(self, s=None, p=None, o=None):
+    #print "remove", s,p,o
     for x in self.get(s,p,o):
       del self.db[x['_id']]
 
@@ -36,8 +38,12 @@ class Graph ():
     self.add(s, p, o, t)
 
   def get(self, s=None, p=None, o=None):
+    #print "get", s,p,o
     ret = []
-    if s and not p and not o:
+    if s and p and o:
+      return [x.value for x in self.db.view('_view/index/spo', None, key=[s, p, o])]
+
+    elif s and not p and not o:
       return [x.value for x in self.db.view('_view/index/s', None, key=s)]
 
     elif s and p and not o:
@@ -50,7 +56,6 @@ class Graph ():
       return [x.value for x in self.db.view('_view/index/spo')]
 
     else:
-      print s, p, o
       raise Exception("combination not supported")
         
     return ret
