@@ -24,11 +24,11 @@ setup(
     version = "0.0.1",
     url = 'http://github.com/krl/krdf',
     license = 'GNU GPL v3 or later',
-    description='An RDF persistance layer on top of Pyrant',
+    description='An RDF persistance layer on top of Couchdb',
     author = 'Kristoffer Ström',
     author_email = 'kristoffer@rymdkoloni.se',
     packages = ['krdf'],
-    install_requires = ['setuptools', 'bsddb3'],
+    install_requires = ['setuptools'],
     include_package_data = True,
     classifiers = [
       'Intended Audience :: Developers',
