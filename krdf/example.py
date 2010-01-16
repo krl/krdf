@@ -36,7 +36,7 @@ k.friends.add(m)
 k.save()
 m.save()
 
-# fight!
+# # fight!
 
 rude = Message("rude")
 rude.maker = m
@@ -60,6 +60,5 @@ reply.created = 120 # took me only 20 seconds to forgive!
 reply.save()
 
 # now we want these in order!
-
 for x in Message.getsorted(example.created):
   print "["+str(x.created)+"]", x.maker.name, "->", x.to.name, ":", x.body

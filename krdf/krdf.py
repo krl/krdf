@@ -23,8 +23,12 @@ class Namespace():
     return self.base
 
 class Database():
+
+
   def __init__(self, address, db_name, overwrite=False):
+    self.cache = {}
     self.sortviewcache = {}
+
     server = couchdb.Server(address)
 
     if server[db_name]:
@@ -60,11 +64,9 @@ function(doc) {
         self._uri = uri
         self._doc = doc
 
+        #print doc
         if not doc:
-          try:
-            self._doc = self._db[uri]
-          except:
-            self._doc = {"type": "resource", "data":{}}
+          self._doc = reference.get_cache(uri) #dict(self._db[uri])
 
         # loop through the schema items set in (sub)class definition
         for k, v in self.__class__.__dict__.iteritems():
@@ -77,6 +79,8 @@ function(doc) {
               self._doc['data'][v.prd] = [{"type": v.objtype, "value":v.default}]
 
       def save(self):
+        # print "saving"*10
+        # print self._doc
         self._db[self._uri] = self._doc
         self._callback(self._uri)
         return self
@@ -91,8 +95,14 @@ function(doc) {
 
             objtype = "uri"      if hasattr(obj.objtype, "_db" ) else obj.objtype
             value   = value._uri if hasattr(value,       "_uri") else value
+            # print [{"type": objtype, "value": value}]
 
             self._doc['data'][obj.prd] = [{"type": objtype, "value": value}]
+
+            # print "+"*100
+            # print self._doc['data']
+            # print reference.cache
+
           elif isinstance(obj, Multiple):
             raise Exception("Cannot assign values to Multiple, use add()")
           else:
@@ -108,12 +118,15 @@ function(doc) {
         obj = object.__getattribute__(self, key)
 
         if isinstance(obj, Single):
-          value = self._doc['data'][obj.prd][0]['value']
-
           try:
+            value = self._doc['data'][obj.prd][0]['value']
+          except KeyError:
+            value = ""
+            
+          try: # is class?
             return obj.objtype(value)
           except TypeError:
-            return value
+            return value          
 
         elif isinstance(obj, Multiple):
           obj.parent = self
@@ -139,7 +152,6 @@ function(doc) {
           if isinstance(v, Single) and v.default:
             restrictions.append([v.prd, v.default])
 
-        # get them resources
         if not restrictions:
           raise Error("Query without restrictions")
 
@@ -147,7 +159,6 @@ function(doc) {
         if sortby:
           get_key = None
           view = reference.sortview(sortby)
-
         else:
           get_key = restrictions.pop()
           view = '_view/index/po'
@@ -186,10 +197,24 @@ function(doc) {
     for x in self.callbacks:
       x(uri)
 
+  def get_cache(self, uri):
+    # print "/"*100
+    # print uri
+    # print self.cache
+
+    if not self.cache.has_key(uri):
+      self.cache[uri] = {"type": "resource", "data":{}}
+    # else:
+    #   print "hit cache!"
+      
+    return self.cache[uri]
+
   # def dump(self):
   #   return self.graph.get()
 
   def sortview(self, prd):
+    # FIXME, at the moment this does reverse ordering of numbers only. (for latest first stuff)
+
     hashed = hash(prd)
 
     if self.sortviewcache.has_key(hashed):
@@ -203,7 +228,7 @@ function(doc) {
                     "         for (x in doc.data) {"+
                     "           if (x == \""+prd+"\") {"+
                     "             emit(-doc.data[x][0].value, doc)}}}"}}}
-      
+
     view_path = view_id + "/view"
     self.sortviewcache[hashed] = view_path
     return view_path
