@@ -29,8 +29,8 @@ m = Person("mumin")
 m.name = "Mumin"
 
 # let's be friends forever
-m.friends.add(k)
-k.friends.add(m)
+# m.friends.add(k)
+# k.friends.add(m)
 
 # save to database
 k.save()
