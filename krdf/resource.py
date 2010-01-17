@@ -185,4 +185,7 @@ class MultipleInterface():
     self.doc['data'][self.schema.prd] = data
 
   def get(self):
-    return [self.schema.objclass(x['value']) for x in self.doc['data'][self.schema.prd]]
+    try:
+      return [self.schema.objclass(x['value']) for x in self.doc['data'][self.schema.prd]]
+    except KeyError:
+      return []

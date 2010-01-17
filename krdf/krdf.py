@@ -79,7 +79,7 @@ class Database():
     view_id = str(hash(prd))
 
     # if not already created
-    if not self.db.__contains__(view_id):
+    if not self.db.__contains__("_design/"+view_id):
       self.db["_design/"+view_id] = {"views": {"view": {"map" : views.sorting % prd}}}
 
     view_path = view_id + "/view"
