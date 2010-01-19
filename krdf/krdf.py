@@ -19,22 +19,31 @@ class Namespace():
 class Database():
   def __init__(self, address, db_name, overwrite=False):
     self.cache = {}
+    self.callbacks = []
     self.server = couchdb.Server(address)
     
-    if self.server.__contains__(db_name) and overwrite:
-      del self.server[db_name]
+    try:
+      self.db = self.server.create(db_name)
+    except:
+      if overwrite:
+        del self.server[db_name]
+        self.db = self.server.create(db_name)
+      else:
+        self.db = self.server[db_name]
 
-    if not self.server.__contains__(db_name):
-      self.server.create(db_name)
+    # if self.server.__contains__(db_name) and overwrite:
+    #   del self.server[db_name]
 
-    self.db = self.server[db_name]    
+    # if not self.server.__contains__(db_name):
+    #   self.server.create(db_name)
+
+    # self.db = self.server[db_name]    
 
     ## setup views
 
     if not self.db.__contains__('_design/index'):
       self.db['_design/index'] = views.index
 
-    self.callbacks = []
     reference = self
 
     # resource subclassing
@@ -102,3 +111,6 @@ class Database():
       _try = uri + "_" + str(count)
       count += 1
     return _try
+
+  def tojson(self, *uris):
+    return cjson.encode(dict([[y._uri, self.get_doc(y._uri)['data']] for y in uris]))
