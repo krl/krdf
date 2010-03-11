@@ -10,7 +10,7 @@ This creates the database object.
     import krdf
     from krdf import Single, Multiple
 
-    db = krdf.Database('http://localhost:5984/','example', True)
+    db = krdf.Database('http://localhost:5984/','example')
 
 Let's define a resource, this is done by subclassing the Resource class in our new db object.
 
