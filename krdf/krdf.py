@@ -78,7 +78,7 @@ class Database():
     if not self.cache.has_key(uri):
       try:
         self.cache[uri] = dict(self.db[uri])
-      except couchdb.client.ResourceNotFound:
+      except couchdb.http.ResourceNotFound:
         # initialize
         self.cache[uri] = {"type": "resource", "data":{}}
 
